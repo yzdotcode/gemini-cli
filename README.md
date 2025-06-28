@@ -131,6 +131,56 @@ Use MCP servers to integrate your local system tools with your enterprise collab
 > Organise my PDF invoices by month of expenditure.
 ```
 
+## Running with Docker
+
+You can also run the Gemini CLI in a Docker container. This is useful for ensuring a consistent environment and avoiding the need to install Node.js and other dependencies on your host machine.
+
+**Prerequisites:**
+
+- [Docker](https://docs.docker.com/get-docker/) installed and running.
+- [Docker Compose](https://docs.docker.com/compose/install/) (usually included with Docker Desktop).
+
+**Instructions:**
+
+1.  **Build the Docker image:**
+
+    ```bash
+    docker-compose build
+    ```
+
+2.  **Run the Gemini CLI:**
+
+    ```bash
+    docker-compose run --rm gemini
+    ```
+
+This will start the Gemini CLI in a container, and you can interact with it just as you would on your local machine. Your current directory is mounted into the container, so you can work with your local files.
+
+**Note:** The sandbox feature is not available when running the CLI in a Docker container using this method.
+
+### Authentication in Docker
+
+When running the Gemini CLI in Docker, if authentication is required, the CLI will display a URL. You will need to open this URL in your browser, complete the authentication flow, and then paste the redirected URL back into the Docker terminal.
+
+Example:
+
+```
+Code Assist login required.
+
+Please open the following URL in your browser:
+
+https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=...&redirect_uri=http%3A%2F%2Flocalhost%3A8008%2Foauth2callback&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile&state=...
+
+After authenticating, you will be redirected to a localhost URL.
+Copy the *entire* redirected URL from your browser's address bar and paste it here.
+
+================================================================================
+
+Paste the redirected URL here:
+```
+
+Paste the full redirected URL (starting with `http://localhost:8008/oauth2callback?...`) into the terminal and press Enter. The CLI will then proceed with authentication.
+
 ## Terms of Service and Privacy Notice
 
 For details on the terms of service and privacy notice applicable to your use of Gemini CLI, see the [Terms of Service and Privacy Notice](./docs/tos-privacy.md).

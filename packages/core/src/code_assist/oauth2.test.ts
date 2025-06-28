@@ -9,8 +9,7 @@ import { getOauthClient } from './oauth2.js';
 import { OAuth2Client } from 'google-auth-library';
 import * as fs from 'fs';
 import * as path from 'path';
-import http from 'http';
-import open from 'open';
+import * as readline from 'readline';
 import crypto from 'crypto';
 import * as os from 'os';
 
@@ -23,8 +22,7 @@ vi.mock('os', async (importOriginal) => {
 });
 
 vi.mock('google-auth-library');
-vi.mock('http');
-vi.mock('open');
+vi.mock('readline');
 vi.mock('crypto');
 
 describe('oauth2', () => {
@@ -36,6 +34,7 @@ describe('oauth2', () => {
     );
     vi.mocked(os.homedir).mockReturnValue(tempHomeDir);
   });
+
   afterEach(() => {
     fs.rmSync(tempHomeDir, { recursive: true, force: true });
   });
@@ -61,65 +60,37 @@ describe('oauth2', () => {
     vi.mocked(OAuth2Client).mockImplementation(() => mockOAuth2Client);
 
     vi.spyOn(crypto, 'randomBytes').mockReturnValue(mockState as never);
-    vi.mocked(open).mockImplementation(async () => ({}) as never);
 
-    let requestCallback!: http.RequestListener<
-      typeof http.IncomingMessage,
-      typeof http.ServerResponse
-    >;
-
-    let serverListeningCallback: (value: unknown) => void;
-    const serverListeningPromise = new Promise(
-      (resolve) => (serverListeningCallback = resolve),
+    let questionCallback: (pastedUrl: string) => Promise<void>;
+    let questionCallbackAssigned: (value: unknown) => void;
+    const questionCallbackPromise = new Promise(
+      (resolve) => (questionCallbackAssigned = resolve),
     );
 
-    let capturedPort = 0;
-    const mockHttpServer = {
-      listen: vi.fn((port: number, callback?: () => void) => {
-        capturedPort = port;
-        if (callback) {
-          callback();
-        }
-        serverListeningCallback(undefined);
+    const mockReadline = {
+      question: vi.fn((_prompt, cb) => {
+        questionCallback = cb;
+        questionCallbackAssigned(undefined);
       }),
-      close: vi.fn((callback?: () => void) => {
-        if (callback) {
-          callback();
-        }
-      }),
-      on: vi.fn(),
-      address: () => ({ port: capturedPort }),
+      close: vi.fn(),
     };
-    vi.mocked(http.createServer).mockImplementation((cb) => {
-      requestCallback = cb as http.RequestListener<
-        typeof http.IncomingMessage,
-        typeof http.ServerResponse
-      >;
-      return mockHttpServer as unknown as http.Server;
-    });
+    vi.mocked(readline.createInterface).mockReturnValue(
+      mockReadline as unknown as readline.Interface,
+    );
 
     const clientPromise = getOauthClient();
 
-    // wait for server to start listening.
-    await serverListeningPromise;
+    await questionCallbackPromise;
 
-    const mockReq = {
-      url: `/oauth2callback?code=${mockCode}&state=${mockState}`,
-    } as http.IncomingMessage;
-    const mockRes = {
-      writeHead: vi.fn(),
-      end: vi.fn(),
-    } as unknown as http.ServerResponse;
-
-    await requestCallback(mockReq, mockRes);
+    const pastedUrl = `http://localhost:8008/oauth2callback?code=${mockCode}&state=${mockState}`;
+    await questionCallback!(pastedUrl);
 
     const client = await clientPromise;
     expect(client).toBe(mockOAuth2Client);
 
-    expect(open).toHaveBeenCalledWith(mockAuthUrl);
     expect(mockGetToken).toHaveBeenCalledWith({
       code: mockCode,
-      redirect_uri: `http://localhost:${capturedPort}/oauth2callback`,
+      redirect_uri: 'http://localhost:8008/oauth2callback',
     });
     expect(mockSetCredentials).toHaveBeenCalledWith(mockTokens);
 

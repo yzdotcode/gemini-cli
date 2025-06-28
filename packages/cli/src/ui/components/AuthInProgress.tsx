@@ -6,7 +6,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useInput } from 'ink';
-import Spinner from 'ink-spinner';
 import { Colors } from '../colors.js';
 
 interface AuthInProgressProps {
@@ -46,11 +45,7 @@ export function AuthInProgress({
           Authentication timed out. Please try again.
         </Text>
       ) : (
-        <Box>
-          <Text>
-            <Spinner type="dots" /> Waiting for auth... (Press ESC to cancel)
-          </Text>
-        </Box>
+        <Box></Box>
       )}
     </Box>
   );

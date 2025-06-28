@@ -5,14 +5,12 @@
  */
 
 import { OAuth2Client, Credentials } from 'google-auth-library';
-import * as http from 'http';
 import url from 'url';
 import crypto from 'crypto';
-import * as net from 'net';
-import open from 'open';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import * as os from 'os';
+import * as readline from 'readline';
 
 //  OAuth Client ID used to initiate OAuth2Client class.
 const OAUTH_CLIENT_ID =
@@ -33,12 +31,6 @@ const OAUTH_SCOPE = [
   'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
-const HTTP_REDIRECT = 301;
-const SIGN_IN_SUCCESS_URL =
-  'https://developers.google.com/gemini-code-assist/auth_success_gemini';
-const SIGN_IN_FAILURE_URL =
-  'https://developers.google.com/gemini-code-assist/auth_failure_gemini';
-
 const GEMINI_DIR = '.gemini';
 const CREDENTIAL_FILENAME = 'oauth_creds.json';
 
@@ -47,11 +39,6 @@ const CREDENTIAL_FILENAME = 'oauth_creds.json';
  * as well as a promise that will resolve when the credentials have
  * been refreshed (or which throws error when refreshing credentials failed).
  */
-export interface OauthWebLogin {
-  authUrl: string;
-  loginCompletePromise: Promise<void>;
-}
-
 export async function getOauthClient(): Promise<OAuth2Client> {
   const client = new OAuth2Client({
     clientId: OAUTH_CLIENT_ID,
@@ -63,24 +50,13 @@ export async function getOauthClient(): Promise<OAuth2Client> {
     return client;
   }
 
-  const webLogin = await authWithWeb(client);
-
-  console.log(
-    `\n\nCode Assist login required.\n` +
-      `Attempting to open authentication page in your browser.\n` +
-      `Otherwise navigate to:\n\n${webLogin.authUrl}\n\n`,
-  );
-  await open(webLogin.authUrl);
-  console.log('Waiting for authentication...');
-
-  await webLogin.loginCompletePromise;
+  await authWithWeb(client);
 
   return client;
 }
 
-async function authWithWeb(client: OAuth2Client): Promise<OauthWebLogin> {
-  const port = await getAvailablePort();
-  const redirectUri = `http://localhost:${port}/oauth2callback`;
+async function authWithWeb(client: OAuth2Client): Promise<void> {
+  const redirectUri = `http://localhost:8008/oauth2callback`;
   const state = crypto.randomBytes(32).toString('hex');
   const authUrl: string = client.generateAuthUrl({
     redirect_uri: redirectUri,
@@ -89,72 +65,65 @@ async function authWithWeb(client: OAuth2Client): Promise<OauthWebLogin> {
     state,
   });
 
-  const loginCompletePromise = new Promise<void>((resolve, reject) => {
-    const server = http.createServer(async (req, res) => {
-      try {
-        if (req.url!.indexOf('/oauth2callback') === -1) {
-          res.writeHead(HTTP_REDIRECT, { Location: SIGN_IN_FAILURE_URL });
-          res.end();
-          reject(new Error('Unexpected request: ' + req.url));
-        }
-        // acquire the code from the querystring, and close the web server.
-        const qs = new url.URL(req.url!, 'http://localhost:3000').searchParams;
-        if (qs.get('error')) {
-          res.writeHead(HTTP_REDIRECT, { Location: SIGN_IN_FAILURE_URL });
-          res.end();
-
-          reject(new Error(`Error during authentication: ${qs.get('error')}`));
-        } else if (qs.get('state') !== state) {
-          res.end('State mismatch. Possible CSRF attack');
-
-          reject(new Error('State mismatch. Possible CSRF attack'));
-        } else if (qs.get('code')) {
-          const { tokens } = await client.getToken({
-            code: qs.get('code')!,
-            redirect_uri: redirectUri,
-          });
-          client.setCredentials(tokens);
-          await cacheCredentials(client.credentials);
-
-          res.writeHead(HTTP_REDIRECT, { Location: SIGN_IN_SUCCESS_URL });
-          res.end();
-          resolve();
-        } else {
-          reject(new Error('No code found in request'));
-        }
-      } catch (e) {
-        reject(e);
-      } finally {
-        server.close();
-      }
-    });
-    server.listen(port);
-  });
-
-  return {
-    authUrl,
-    loginCompletePromise,
-  };
-}
-
-export function getAvailablePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    let port = 0;
-    try {
-      const server = net.createServer();
-      server.listen(0, () => {
-        const address = server.address()! as net.AddressInfo;
-        port = address.port;
-      });
-      server.on('listening', () => {
-        server.close();
-        server.unref();
-      });
-      server.on('error', (e) => reject(e));
-      server.on('close', () => resolve(port));
-    } catch (e) {
-      reject(e);
+  return new Promise<void>((resolve, reject) => {
+    let wasRaw = false;
+    if (process.stdin.isTTY) {
+      wasRaw = process.stdin.isRaw;
+      process.stdin.setRawMode(false);
     }
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    rl.question(
+      `
+
+================================================================================
+
+Code Assist login required.
+
+Please open the following URL in your browser to authenticate:
+
+${authUrl}
+
+After authenticating, you will be redirected to a localhost URL.
+Copy the *entire* redirected URL from your browser's address bar and paste it here.
+
+================================================================================
+
+Paste the redirected URL here: `,
+      async (pastedUrl) => {
+        rl.close();
+        if (process.stdin.isTTY) {
+          process.stdin.setRawMode(wasRaw);
+        }
+        try {
+          const qs = new url.URL(pastedUrl, 'http://localhost').searchParams;
+          if (qs.get('error')) {
+            reject(
+              new Error(`Error during authentication: ${qs.get('error')}`),
+            );
+          } else if (qs.get('state') !== state) {
+            reject(new Error('State mismatch. Possible CSRF attack'));
+          } else if (qs.get('code')) {
+            const { tokens } = await client.getToken({
+              code: qs.get('code')!,
+              redirect_uri: redirectUri,
+            });
+            client.setCredentials(tokens);
+            await cacheCredentials(client.credentials);
+            console.log('Authentication successful!');
+            resolve();
+          } else {
+            reject(new Error('No code found in pasted URL'));
+          }
+        } catch (e) {
+          reject(e);
+        }
+      },
+    );
   });
 }
 

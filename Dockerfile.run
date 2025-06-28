@@ -1,0 +1,27 @@
+# Dockerfile for running the Gemini CLI from local source
+
+# Stage 1: Build the CLI from source
+FROM node:20-slim AS builder
+
+# Install git
+RUN apt-get update && apt-get install -y git
+
+WORKDIR /app
+
+# Copy all source files first
+COPY . .
+
+# Now run npm ci, which will also run the prepare script
+RUN npm ci
+
+# The bundle is created by the `prepare` script during `npm ci`
+
+# Stage 2: Create the final runtime image
+FROM node:20-slim
+WORKDIR /app
+
+# Copy the bundled output from the builder stage
+COPY --from=builder /app/bundle/ ./
+
+# The entrypoint is the main bundled file
+ENTRYPOINT ["node", "/app/gemini.js"]

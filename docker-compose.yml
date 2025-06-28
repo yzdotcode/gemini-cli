@@ -1,0 +1,13 @@
+services:
+  gemini:
+    build:
+      context: .
+      dockerfile: Dockerfile.run
+    # Mount the current directory to /workspace in the container
+    volumes:
+      - .:/workspace
+    # Set the working directory to where your files are mounted
+    working_dir: /workspace
+    # Run interactive so you can use the CLI
+    stdin_open: true
+    tty: true
